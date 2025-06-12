@@ -1,18 +1,18 @@
 import json
 import tkinter as tk
-from idlelib.history import History
 from sys import prefix
-import atexit
 from threading import Thread
 import requests
 import time
 import random
 import webbrowser
 from datetime import datetime
+import os
+from dotenv import load_dotenv
+
 
 
 # Tvůj API klíč
-api_key = '8b1c37144ec00c601ff2be34b1be74c8'  # <-- sem si vlož svůj klíč
 
 # Slovník ID -> Název žánru
 genre_mapping = {
@@ -44,12 +44,16 @@ root = tk.Tk()
 root.title("Náhodný film")
 viewed_movies = []
 
+import requests
 
+def is_api_key_valid(api_key):
+    url = "https://api.themoviedb.org/3/configuration"
+    params = {"api_key": api_key}
+    response = requests.get(url, params=params)
+    return response.status_code == 200
 # Vytvoření textového pole pro uživatelský vstup
 
 def RunningThread():
-    Download_button.config(state="disabled")
-    OK_button.config(state="disabled")
     thread = Thread(target=DownloadMovies)
     thread.start()
 
@@ -64,6 +68,13 @@ def clear_json_on_exit():
 
 def DownloadMovies():
     count_of_pages = 10
+    if not is_api_key_valid(api_entry.get()):
+        print("Neplatný API klíč!")
+        return
+    if not api_key:
+        print("Zadej TMDB API klíč.")
+        return
+    api_key = api_entry.get()
 
     count_choice = (count_of_movies_entry.get())
     # Získáme vstup uživatele
@@ -73,7 +84,8 @@ def DownloadMovies():
         count_of_pages = 10
     base_url = 'https://api.themoviedb.org/3/discover/movie'
     popular_movies = []  # Pole na uložení všech filmů
-
+    Download_button.config(state="disabled")
+    OK_button.config(state="disabled")
     for page in range(1, count_of_pages + 1):
         params = {
             'api_key': api_key,
@@ -93,6 +105,7 @@ def DownloadMovies():
     if not popular_movies:
         print("No movies found.")
         return
+
     SaveMovies(popular_movies)
     SaveInfo(count_of_pages)
     Download_button.config(state="normal")
@@ -106,8 +119,6 @@ def ReadInfo():
             count_info_label.config(text= ("Počet stažených stran: "+str(count)))
     except:
         pass
-def FilterMovies():
-    pass
 
 def SaveMovies(popular_movies: list):
     with open("data.json", "w", encoding="utf-8") as f:
@@ -121,7 +132,6 @@ def SaveInfo(count: int):
 def ChooseMovie():
     with open("data.json", "r", encoding="utf-8") as f:
         popular_movies = json.load(f)
-
 
     user_choice = genre_map[selected_genre.get()]
     min_year_choice= min_year_entry.get().strip().upper()
@@ -273,10 +283,19 @@ count_of_movies_entry.pack()
 
 
 
-Download_button = tk.Button(root, text="Stáhnout databázi filmů", command= RunningThread)
-Download_button.pack()
+
+
+
 ReadInfo()
 
+
+api_info = tk.Label(root, text="Zadej API klíč")
+api_info.pack()
+api_entry = tk.Entry(root)
+api_entry.pack()
+
+Download_button = tk.Button(root, text="Stáhnout databázi filmů", command= RunningThread)
+Download_button.pack()
 
 
 
