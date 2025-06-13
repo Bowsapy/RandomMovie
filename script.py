@@ -1,307 +1,198 @@
-import json
 import tkinter as tk
-from sys import prefix
+from tkinter import messagebox
 from threading import Thread
 import requests
+import json
 import time
 import random
 import webbrowser
-from datetime import datetime
-import os
-from dotenv import load_dotenv
 
-
-
-# Tvůj API klíč
-
-# Slovník ID -> Název žánru
-genre_mapping = {
-    28: 'Akční',
-    12: 'Dobrodružný',
-    16: 'Animovaný',
-    35: 'Komedie',
-    80: 'Krimi',
-    99: 'Dokumentární',
-    18: 'Drama',
-    10751: 'Rodinný',
-    14: 'Fantasy',
-    36: 'Historický',
-    27: 'Horor',
-    10402: 'Hudební',
-    9648: 'Mysteriózní',
-    10749: 'Romantický',
-    878: 'Sci-Fi',
-    10770: 'TV film',
-    53: 'Thriller',
-    10752: 'Válečný',
-    37: 'Western'
+GENRE_MAPPING = {
+    28: 'Akční', 12: 'Dobrodružný', 16: 'Animovaný', 35: 'Komedie',
+    80: 'Krimi', 99: 'Dokumentární', 18: 'Drama', 10751: 'Rodinný',
+    14: 'Fantasy', 36: 'Historický', 27: 'Horor', 10402: 'Hudební',
+    9648: 'Mysteriózní', 10749: 'Romantický', 878: 'Sci-Fi',
+    10770: 'TV film', 53: 'Thriller', 10752: 'Válečný', 37: 'Western'
 }
-genre_map = {"Vše": "Vše","Komedie": 35, "Akční": 28, "Horor": 27, "Fantasy": 14, "Válečný": 10752, "Animovaný": 16}
-lang_map = {"Vše": "Vše","Anglicky": "en", "Německy": "de", "Španělsky": "es", "Hindsky":"hi"}
 
-# Vytvoření hlavního okna
-root = tk.Tk()
-root.title("Náhodný film")
-viewed_movies = []
+GENRE_FILTER = {"Vše": "Vše", "Komedie": 35, "Akční": 28, "Horor": 27, "Fantasy": 14, "Válečný": 10752, "Animovaný": 16}
+LANG_FILTER = {"Vše": "Vše", "Anglicky": "en", "Německy": "de", "Španělsky": "es", "Hindsky": "hi"}
 
-import requests
+class MovieApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Náhodný film")
+        self.viewed_movies = []
 
-def is_api_key_valid(api_key):
-    url = "https://api.themoviedb.org/3/configuration"
-    params = {"api_key": api_key}
-    response = requests.get(url, params=params)
-    return response.status_code == 200
-# Vytvoření textového pole pro uživatelský vstup
+        self.create_widgets()
+        self.load_info()
 
-def RunningThread():
-    thread = Thread(target=DownloadMovies)
-    thread.start()
+    def create_widgets(self):
+        # Řádek 0 – Žánr
+        self.genre_label = tk.Label(self.root, text="Žánr:")
+        self.genre_label.grid(row=0, column=0, padx=10, pady=5, sticky="e")
+        self.genre_var = tk.StringVar(value="Vše")
+        tk.OptionMenu(self.root, self.genre_var, *GENRE_FILTER.keys()).grid(row=0, column=1, padx=10, pady=5,
+                                                                            sticky="w")
 
-# Funkce pro získání vybraného žánru
+        # Řádek 1 – Od roku
+        self.year_from_label = tk.Label(self.root, text="Od roku:")
+        self.year_from_label.grid(row=1, column=0, padx=10, pady=5, sticky="e")
+        self.year_from_entry = tk.Entry(self.root, validate="key",
+                                        validatecommand=(self.root.register(self.validate_year), "%P"))
+        self.year_from_entry.grid(row=1, column=1, padx=10, pady=5, sticky="w")
 
-def clear_json_on_exit():
-    with open("data.json", "w") as file:
-        json.dump([], file)  # nebo [] podle struktury
+        # Řádek 2 – Do roku
+        self.year_to_label = tk.Label(self.root, text="Do roku:")
+        self.year_to_label.grid(row=2, column=0, padx=10, pady=5, sticky="e")
+        self.year_to_entry = tk.Entry(self.root, validate="key",
+                                      validatecommand=(self.root.register(self.validate_year), "%P"))
+        self.year_to_entry.grid(row=2, column=1, padx=10, pady=5, sticky="w")
 
+        # Řádek 3 – Jazyk
+        self.lang_label = tk.Label(self.root, text="Původní jazyk:")
+        self.lang_label.grid(row=3, column=0, padx=10, pady=5, sticky="e")
+        self.lang_var = tk.StringVar(value="Vše")
+        tk.OptionMenu(self.root, self.lang_var, *LANG_FILTER.keys()).grid(row=3, column=1, padx=10, pady=5, sticky="w")
 
-# Funkce pro vyhledání filmu podle žánru
+        # Řádek 4 – Tlačítka
+        self.pick_button = tk.Button(self.root, text="Vybrat film", command=self.choose_movie)
+        self.pick_button.grid(row=4, column=0, padx=10, pady=5, sticky="e")
+        self.history_button = tk.Button(self.root, text="Zobrazit historii", command=self.show_history)
+        self.history_button.grid(row=4, column=1, padx=10, pady=5, sticky="w")
 
-def DownloadMovies():
-    count_of_pages = 10
-    if not is_api_key_valid(api_entry.get()):
-        print("Neplatný API klíč!")
-        return
-    if not api_key:
-        print("Zadej TMDB API klíč.")
-        return
-    api_key = api_entry.get()
+        # Řádek 5 – Počet stran info
+        self.count_info_label = tk.Label(self.root, text="Počet stažených stran: 0")
+        self.count_info_label.grid(row=5, column=0, columnspan=2, padx=10, pady=5)
 
-    count_choice = (count_of_movies_entry.get())
-    # Získáme vstup uživatele
-    if count_choice:
-        count_of_pages = int(count_choice)
-    else:
-        count_of_pages = 10
-    base_url = 'https://api.themoviedb.org/3/discover/movie'
-    popular_movies = []  # Pole na uložení všech filmů
-    Download_button.config(state="disabled")
-    OK_button.config(state="disabled")
-    for page in range(1, count_of_pages + 1):
-        params = {
-            'api_key': api_key,
-            'language': 'cs',
-            'page': page,
-            'sort_by': 'popularity.desc'
-        }
+        # Řádek 6 – Zadej počet stran
+        self.page_count_label = tk.Label(self.root, text="Počet stránek:")
+        self.page_count_label.grid(row=6, column=0, padx=10, pady=5, sticky="e")
+        self.page_count_entry = tk.Entry(self.root, validate="key",
+                                         validatecommand=(self.root.register(self.validate_page_count), "%P"))
+        self.page_count_entry.grid(row=6, column=1, padx=10, pady=5, sticky="w")
 
-        response = requests.get(base_url, params=params)
-        if response.status_code == 200:
-            data = response.json()
-            popular_movies.extend(data['results'])  # Přidání filmů z aktuální stránky
-        else:
-            print(f"Chyba při stahování stránky {page}: {response.status_code}")
-        time.sleep(0.5)  # Pauza mezi požadavky
+        # Řádek 7 – API klíč
+        self.api_label = tk.Label(self.root, text="Zadej API klíč:")
+        self.api_label.grid(row=7, column=0, padx=10, pady=5, sticky="e")
+        self.api_entry = tk.Entry(self.root)
+        self.api_entry.grid(row=7, column=1, padx=10, pady=5, sticky="w")
+        self.download_button = tk.Button(self.root, text="Stáhnout databázi filmů", command=self.start_download_thread)
+        self.download_button.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
 
-    if not popular_movies:
-        print("No movies found.")
-        return
+        # Řádek 9 – Výsledek
+        self.result_label = tk.Label(self.root, text="", wraplength=300)
+        self.result_label.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
 
-    SaveMovies(popular_movies)
-    SaveInfo(count_of_pages)
-    Download_button.config(state="normal")
-    OK_button.config(state="normal")
+    def validate_year(self, value):
+        return value.isdigit() and len(value) <= 4 or value == ""
 
-def ReadInfo():
-    try:
-        with open("info.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-            count = data.get("count",0)
-            count_info_label.config(text= ("Počet stažených stran: "+str(count)))
-    except:
-        pass
+    def validate_page_count(self, value):
+        return value.isdigit() and int(value) <= 500 or value == ""
 
-def SaveMovies(popular_movies: list):
-    with open("data.json", "w", encoding="utf-8") as f:
-        json.dump(popular_movies, f, ensure_ascii=False, indent=4)
+    def start_download_thread(self):
+        Thread(target=self.download_movies).start()
 
-def SaveInfo(count: int):
-    count_info_label.config(text="Počet stažených stran: "+str(count))
-    with open("info.json", "w", encoding="utf-8") as i:
-        json.dump({"count": count}, i, ensure_ascii=False, indent=4)
+    def is_api_key_valid(self, api_key):
+        url = "https://api.themoviedb.org/3/configuration"
+        return requests.get(url, params={"api_key": api_key}).status_code == 200
 
-def ChooseMovie():
-    with open("data.json", "r", encoding="utf-8") as f:
-        popular_movies = json.load(f)
-
-    user_choice = genre_map[selected_genre.get()]
-    min_year_choice= min_year_entry.get().strip().upper()
-    max_year_choice= max_year_entry.get().strip().upper()
-    lang_choice= lang_map[selected_lang.get()]
-
-
-    if min_year_choice != "" and max_year_choice != "":
-        if int(min_year_choice) > int(max_year_choice):
+    def download_movies(self):
+        api_key = self.api_entry.get()
+        if not api_key:
+            messagebox.showerror("Chyba", "Zadej API klíč.")
+            return
+        if not self.is_api_key_valid(api_key):
+            messagebox.showerror("Chyba", "Neplatný API klíč.")
             return
 
-    canditates = []
+        pages = int(self.page_count_entry.get()) if self.page_count_entry.get() else 10
+        url = "https://api.themoviedb.org/3/discover/movie"
+        all_movies = []
 
+        self.download_button.config(state="disabled")
+        self.pick_button.config(state="disabled")
 
-    for each_movie in popular_movies:
-        if each_movie is None:
-            continue
-        if user_choice != "Vše":
-            if user_choice in each_movie['genre_ids']:
-                pass
-            else:
+        for page in range(1, pages + 1):
+            params = {
+                "api_key": api_key,
+                "language": "cs",
+                "page": page,
+                "sort_by": "popularity.desc"
+            }
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                all_movies.extend(response.json().get("results", []))
+            time.sleep(0.5)
+
+        with open("data.json", "w", encoding="utf-8") as f:
+            json.dump(all_movies, f, ensure_ascii=False, indent=4)
+
+        with open("info.json", "w", encoding="utf-8") as f:
+            json.dump({"count": pages}, f, ensure_ascii=False, indent=4)
+
+        self.count_info_label.config(text=f"Počet stažených stran: {pages}")
+        self.download_button.config(state="normal")
+        self.pick_button.config(state="normal")
+
+    def choose_movie(self):
+        try:
+            with open("data.json", "r", encoding="utf-8") as f:
+                movies = json.load(f)
+        except FileNotFoundError:
+            messagebox.showerror("Chyba", "Nejdřív stáhni databázi filmů.")
+            return
+
+        genre = GENRE_FILTER[self.genre_var.get()]
+        lang = LANG_FILTER[self.lang_var.get()]
+        min_year = self.year_from_entry.get()
+        max_year = self.year_to_entry.get()
+
+        candidates = []
+        for movie in movies:
+            if genre != "Vše" and genre not in movie["genre_ids"]:
                 continue
-
-        if min_year_choice and each_movie['release_date'][:4].isdigit():
-            if int(min_year_choice) <= int(str(each_movie['release_date'][:4])):
-                pass
-            else:
+            year = movie.get("release_date", "")[:4]
+            if min_year and year < min_year: continue
+            if max_year and year > max_year: continue
+            if lang != "Vše" and movie["original_language"] != lang:
                 continue
-        if max_year_choice and each_movie['release_date'][:4].isdigit():
-            if int(max_year_choice) >= int(str(each_movie['release_date'][:4])):
-                pass
-            else:
-                continue
-        if lang_choice != "Vše":
-            if lang_choice == str(each_movie['original_language']):
-                pass
-            else:
-                continue
-        canditates.append(each_movie)
+            candidates.append(movie)
 
-    if len(canditates) == 0:
-        return
+        if not candidates:
+            messagebox.showinfo("Info", "Žádný film neodpovídá filtru.")
+            return
 
-    random_movie = random.choice(canditates)  # Vyber náhodný film
+        chosen = random.choice(candidates)
+        genres = [GENRE_MAPPING.get(gid, "Neznámý") for gid in chosen.get("genre_ids", [])]
+        self.result_label.config(text=f"{chosen['title']} - {', '.join(genres)}")
+        self.viewed_movies.append(chosen)
+        webbrowser.open_new_tab(f"https://prehraj.to/hledej/{chosen['title']}")
 
+    def show_history(self):
+        if not self.viewed_movies:
+            return
 
+        history_win = tk.Toplevel(self.root)
+        history_win.title("Historie zhlédnutých filmů")
+        for movie in self.viewed_movies:
+            title = movie.get("title", "Neznámý")
+            year = movie.get("release_date", "")[:4]
+            genres = [GENRE_MAPPING.get(gid, "Neznámý") for gid in movie.get("genre_ids", [])]
+            label = tk.Label(history_win, text=f"{title} ({year}) – {', '.join(genres)}", anchor="w")
+            label.pack(fill="x", padx=10, pady=2)
 
-    movie_genres = [genre_mapping.get(genre_id, 'Neznámý') for genre_id in random_movie['genre_ids']]
-    result_label.configure(text=f"{random_movie['title']} \n {', '.join(movie_genres)}")
-    viewed_movies.append(random_movie)
-    url = f"https://prehraj.to/hledej/{random_movie['title']}"
-    webbrowser.open_new_tab(url)
-# Vstupní pole pro zadání žánru
-def validate_input(new_value):
-    if new_value == "":
-        return True  # umožní mazání
-    return new_value.isdigit() and len(new_value) <= 4
-
-        # povolit průběžné zadávání, ale kontrolovat rozsah až při 4 číslicích
-
-def validate_count(new_value):
-    if new_value == "":
-        return True
-    if new_value.isdigit():
-        return int(new_value) <= 500
-    return False
-
-def ShowViewMovies():
-    if not viewed_movies:
-        return  # Není co zobrazovat
-
-    view_window = tk.Toplevel(root)
-    view_window.title("Zobrazené filmy")
-
-    label = tk.Label(view_window, text="Zobrazené filmy:")
-    label.pack()
-
-    for movie in viewed_movies:
-        title = movie.get('title', 'Neznámý název')
-        year = movie.get('release_date', '')[:4]
-        genres = [genre_mapping.get(genre_id, 'Neznámý') for genre_id in movie.get('genre_ids', [])]
-        movie_info = f"{title} ({year}) – {', '.join(genres)}"
-        tk.Label(view_window, text=movie_info, anchor="w").pack(fill="x", padx=10, pady=2)
-
-genre_info = tk.Label(root, text="Žánr")
-genre_info.pack()
-
-selected_genre = tk.StringVar()
-selected_genre.set("Vše")  # Výchozí hodnota
-genre_menu = tk.OptionMenu(root, selected_genre, *genre_map.keys())
-genre_menu.pack()
+    def load_info(self):
+        try:
+            with open("info.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+                count = data.get("count", 0)
+                self.count_info_label.config(text=f"Počet stažených stran: {count}")
+        except:
+            pass
 
 
-
-# Registrace validátorů
-vcmd_year = (root.register(validate_input), '%P')
-vcmd_count = (root.register(validate_count), '%P')
-
-# Rok "Od"
-year_info = tk.Label(root, text="Od roku")
-year_info.pack()
-
-min_year_entry = tk.Entry(root, validate='key', validatecommand=vcmd_year)
-min_year_entry.pack()
-
-# Rok "Do"
-year_info = tk.Label(root, text="Do roku")
-year_info.pack()
-
-max_year_entry = tk.Entry(root, validate='key', validatecommand=vcmd_year)
-max_year_entry.pack()
-
-
-# Tlačítko pro zpracování
-
-year_info = tk.Label(root, text="Původní jazyk")
-year_info.pack()
-selected_lang = tk.StringVar()
-selected_lang.set("Vše")  # Výchozí hodnota
-lang_menu = tk.OptionMenu(root, selected_lang, *lang_map.keys())
-lang_menu.pack()
-
-
-empty_label = tk.Label(root, text="")
-empty_label.pack()
-OK_button = tk.Button(root, text="Vybrat film", command=ChooseMovie)
-OK_button.pack()
-
-history_button = tk.Button(root, text="Ukaž historii", command=ShowViewMovies)
-history_button.pack()
-
-
-# Místo pro zobrazení výsledku
-result_label = tk.Label(root, text="")
-result_label.pack()
-
-
-count_info_label = tk.Label(root, text="0")
-count_info_label.pack()
-
-
-
-count_label = tk.Label(root, text="Počet stránek")
-count_label.pack()
-
-
-count_of_movies_entry = tk.Entry(root,validate='key', validatecommand=vcmd_count)
-count_of_movies_entry.pack()
-
-
-
-
-
-
-ReadInfo()
-
-
-api_info = tk.Label(root, text="Zadej API klíč")
-api_info.pack()
-api_entry = tk.Entry(root)
-api_entry.pack()
-
-Download_button = tk.Button(root, text="Stáhnout databázi filmů", command= RunningThread)
-Download_button.pack()
-
-
-
-
-
-
-# Zaregistruj funkci, která se zavolá při ukončení
-# Spuštění hlavní smyčky pro GUI
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = MovieApp(root)
+    root.mainloop()
